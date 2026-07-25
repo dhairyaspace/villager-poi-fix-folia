@@ -1,0 +1,41 @@
+# ============================================================================
+# VillagerPoiHalt configuration
+#
+# Why this plugin exists:
+#   On Folia, villager brain behaviors (AcquirePoi, YieldJobSite,
+#   PoiCompetitorScan) call PoiManager.getOrLoad(). If the POI index for a
+#   needed chunk is not already cached in the current region, that call can
+#   synchronously force-load POI data and stall the region's tick thread.
+#   Confirmed open upstream bug: https://github.com/PaperMC/Folia/issues/292
+#
+# What this plugin does:
+#   villager.setAI(false) fully stops Brain.tick() for that villager, so the
+#   offending behaviors never run. Right-click trading STILL WORKS (the trade
+#   GUI does not depend on AI ticking), but halted villagers will not move,
+#   pathfind, work, restock-by-schedule*, or breed.
+#
+#   * Restocking is driven by brain schedule; keep that in mind for trading
+#     halls (trades still function, restock behavior stops).
+# ============================================================================
+
+# If true, EVERY villager in EVERY world gets AI disabled on spawn/load.
+# The scoping list below is ignored when this is true.
+disable-ai-globally: true
+
+# Only used when disable-ai-globally is false.
+# Villagers are halted only when they spawn/load INSIDE one of these areas.
+# Two entry formats are supported:
+#
+#   1) World + radius (2D circle around x,z; y is ignored):
+#        "radius:<world>:<x>:<z>:<radius>"
+#      Example - a 64-block trading hall around 100,-250 in the overworld:
+#        - "radius:world:100:-250:64"
+#
+#   2) WorldGuard region (requires the WorldGuard plugin to be installed):
+#        "wg:<world>:<regionName>"
+#      Example:
+#        - "wg:world:trading_hall"
+#
+# Villagers OUTSIDE all listed areas are left completely untouched
+# (free-roaming / quest villagers keep normal AI).
+disabled-regions: []
