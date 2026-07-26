@@ -88,6 +88,30 @@ public final class VpoiHaltCommand implements TabExecutor {
         }
         sender.sendMessage(Component.text("(Unloaded villagers keep their halt flag in persistent data.)",
                 NamedTextColor.DARK_GRAY));
+        // Spawner stripping status (CatSpawner/VillageSiege/WanderingTraderSpawner)
+        sender.sendMessage(Component.text("POI spawner stripping: ", NamedTextColor.GRAY)
+                .append(Component.text(settings.stripSpawnersEnabled() ? "enabled" : "disabled",
+                        settings.stripSpawnersEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        for (World world : Bukkit.getWorlds()) {
+            var stripped = plugin.spawnerStripper().strippedIn(world);
+            if (!stripped.isEmpty()) {
+                sender.sendMessage(Component.text("  " + world.getName() + ": stripped " + stripped,
+                        NamedTextColor.DARK_AQUA));
+            }
+        }
+        // Managed employment + restock status (v1.2.0)
+        sender.sendMessage(Component.text("Managed employment: ", NamedTextColor.GRAY)
+                .append(Component.text(settings.employmentEnabled()
+                                ? "on (radius " + settings.employmentSearchRadius() + ", every "
+                                        + (settings.employmentIntervalTicks() / 20) + "s)"
+                                : "off",
+                        settings.employmentEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        sender.sendMessage(Component.text("Managed restock: ", NamedTextColor.GRAY)
+                .append(Component.text(settings.restockEnabled()
+                                ? settings.restockTimesPerCycle() + "x per " + settings.restockCycleMinutes()
+                                        + " min (every " + (settings.restockIntervalTicks() / 20) + "s)"
+                                : "off",
+                        settings.restockEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
     }
 
     private enum Mode { TOGGLE, RESTORE }

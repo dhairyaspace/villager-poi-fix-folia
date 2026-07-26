@@ -7,7 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
-import org.bukkit.plugin.Plugin;
+import org.bukkit.event.world.WorldLoadEvent;
 
 /**
  * Applies the halt policy as villagers enter the world.
@@ -23,10 +23,10 @@ import org.bukkit.plugin.Plugin;
  */
 public final class VillagerListener implements Listener {
 
-    private final Plugin plugin;
+    private final VillagerPoiHaltPlugin plugin;
     private final HaltManager haltManager;
 
-    public VillagerListener(Plugin plugin, HaltManager haltManager) {
+    public VillagerListener(VillagerPoiHaltPlugin plugin, HaltManager haltManager) {
         this.plugin = plugin;
         this.haltManager = haltManager;
     }
@@ -65,5 +65,16 @@ public final class VillagerListener implements Listener {
         if (event.getEntity() instanceof Villager villager) {
             haltManager.onUnload(villager.getUniqueId());
         }
+    }
+
+    /**
+     * Strip POI-scanning custom spawners (CatSpawner / VillageSiege /
+     * WanderingTraderSpawner) from worlds loaded after plugin enable.
+     * WorldLoadEvent fires on the global region thread on Folia, which is
+     * exactly where the spawner-list swap is meant to happen.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorldLoad(WorldLoadEvent event) {
+        plugin.applySpawnerStrip(event.getWorld());
     }
 }

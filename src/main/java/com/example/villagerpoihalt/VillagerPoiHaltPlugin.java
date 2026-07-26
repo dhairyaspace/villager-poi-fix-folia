@@ -39,12 +39,16 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
 
     private Settings settings;
     private HaltManager haltManager;
+    private SpawnerStripper spawnerStripper;
+    private VillagerJobManager jobManager;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         this.settings = Settings.load(this);
         this.haltManager = new HaltManager(this, settings);
+        this.spawnerStripper = new SpawnerStripper(this);
+        this.jobManager = new VillagerJobManager(this, haltManager, settings);
 
         getServer().getPluginManager().registerEvents(new VillagerListener(this, haltManager), this);
 
@@ -60,15 +64,25 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
                     + "those entries will be ignored.");
         }
 
-        // --- Startup sweep over villagers that are ALREADY loaded. ---------
+        // --- Startup sweep over villagers that are ALREADY loaded, plus ----
+        // --- stripping of POI-scanning world spawners (CatSpawner etc.). ---
         // FOLIA: we schedule the sweep on the GlobalRegionScheduler so it runs
         // once the server is fully ticking. Reading the per-world entity list
         // is safe from any thread on Folia (the entity lookup is a concurrent
         // snapshot), but MUTATING an entity is not — so for every villager we
         // hop onto its own EntityScheduler, which is guaranteed to execute on
         // the region thread that owns the entity (or not at all if the entity
-        // is removed first).
-        Bukkit.getGlobalRegionScheduler().run(this, task -> sweepLoadedVillagers());
+        // is removed first). The spawner-list swap is a single reference
+        // assignment (see SpawnerStripper) and is done from the global thread.
+        Bukkit.getGlobalRegionScheduler().run(this, task -> {
+            sweepLoadedVillagers();
+            applySpawnerStripAll();
+        });
+
+        // Start the managed employment + restock schedulers (v1.2.0). These
+        // give AI-disabled villagers back job-taking and trade restocking
+        // WITHOUT any POI lookups. See VillagerJobManager.
+        jobManager.start(settings);
 
         getLogger().info("VillagerPoiHalt enabled. Mode: "
                 + (settings.disableAiGlobally() ? "GLOBAL" : "scoped to " + settings.areas().size() + " area(s)")
@@ -77,6 +91,10 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // Stop the repeating employment/restock tasks cleanly.
+        if (jobManager != null) {
+            jobManager.stop();
+        }
         // Intentionally do NOT re-enable AI here: onDisable cannot safely hop
         // to entity region threads on Folia (the plugin's schedulers are shut
         // down), and leaving NoAI set is exactly what we want across restarts.
@@ -110,10 +128,38 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         return settings;
     }
 
+    public SpawnerStripper spawnerStripper() {
+        return spawnerStripper;
+    }
+
+    public VillagerJobManager jobManager() {
+        return jobManager;
+    }
+
+    /**
+     * Applies the configured spawner-strip policy to one world.
+     * Called on plugin enable and from WorldLoadEvent (both on the global
+     * region thread — the only place the spawner list swap should happen).
+     */
+    public void applySpawnerStrip(World world) {
+        spawnerStripper.apply(world, settings.effectiveStripTargets());
+    }
+
+    private void applySpawnerStripAll() {
+        for (World world : Bukkit.getWorlds()) {
+            applySpawnerStrip(world);
+        }
+    }
+
     /** Re-reads config.yml (used by /vpoihalt reload). */
     public void reloadSettings() {
         reloadConfig();
         this.settings = Settings.load(this);
         this.haltManager.updateSettings(this.settings);
+        // Re-apply spawner stripping: newly-enabled targets get removed and
+        // cached instances of no-longer-stripped spawners get restored.
+        Bukkit.getGlobalRegionScheduler().run(this, task -> applySpawnerStripAll());
+        // Restart the employment/restock schedulers with the new intervals.
+        this.jobManager.start(this.settings);
     }
 }

@@ -1,10 +1,12 @@
 com\example\villagerpoihalt\Settings$RadiusArea.class
-com\example\villagerpoihalt\Settings$WorldGuardArea.class
 com\example\villagerpoihalt\Settings$Area.class
 com\example\villagerpoihalt\VillagerListener.class
-com\example\villagerpoihalt\VpoiHaltCommand$Mode.class
-com\example\villagerpoihalt\HaltManager.class
 com\example\villagerpoihalt\WorldGuardHook.class
 com\example\villagerpoihalt\Settings.class
 com\example\villagerpoihalt\VpoiHaltCommand.class
+com\example\villagerpoihalt\SpawnerStripper.class
 com\example\villagerpoihalt\VillagerPoiHaltPlugin.class
+com\example\villagerpoihalt\Settings$WorldGuardArea.class
+com\example\villagerpoihalt\VpoiHaltCommand$Mode.class
+com\example\villagerpoihalt\VillagerJobManager.class
+com\example\villagerpoihalt\HaltManager.class
