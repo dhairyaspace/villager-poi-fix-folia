@@ -1,17 +1,9 @@
-# Build output
-target/
+# Ignore everything
+*
 
-# Release notes / artifacts
-releases/
-
-# IDE files
-.idea/
-*.iml
-.vscode/
-.settings/
-.project
-.classpath
-
-# OS files
-.DS_Store
-Thumbs.db
+# But allow these
+!src/
+!src/**
+!pom.xml
+!README.md
+!.gitignore

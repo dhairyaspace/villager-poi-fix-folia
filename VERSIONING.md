@@ -50,6 +50,7 @@ Notes:
 
 | Version | Type | Date | Notes |
 | --- | --- | --- | --- |
+| [v1.3.0](releases/v1.3.0.md) | Minor (major feature) | 2025 | `halt-method: aware` — brain off but physics on (gravity, pushing, knockback); new default |
 | [v1.2.0](releases/v1.2.0.md) | Minor (major feature) | 2025 | Managed employment (POI-free job assignment) + managed restock (4x/20min) |
 | [v1.1.0](releases/v1.1.0.md) | Minor (major fix) | 2025 | Strip POI-scanning world spawners (CatSpawner 135s stall, VillageSiege, WanderingTraderSpawner) |
 | [v1.0.0](releases/v1.0.0.md) | Initial release | 2025 | First public release — Folia#292 workaround |
