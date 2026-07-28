@@ -69,8 +69,11 @@ public final class HaltManager {
             return;
         }
         if (isHalted(villager)) {
-            // Re-assert NoAI (cheap) and make sure the loaded-tracking set knows.
-            villager.setAI(false);
+            // Re-assert the CURRENT halt method. This also migrates villagers
+            // halted under a different method (e.g. old NO_AI installs after
+            // switching halt-method to "aware": AI is turned back on so
+            // physics work again, and setAware(false) keeps the brain off).
+            applyHaltState(villager);
             haltedLoaded.add(villager.getUniqueId());
             return;
         }
@@ -80,23 +83,46 @@ public final class HaltManager {
     }
 
     /**
-     * Disables the villager's AI. With NoAI set, the server never calls
-     * {@code Brain.tick()} for this entity, so the POI-searching behaviors
+     * Stops the villager's brain so the POI-searching behaviors
      * (AcquirePoi / YieldJobSite / PoiCompetitorScan) never run and
-     * {@code PoiManager.getOrLoad()} is never reached — which is the whole
-     * point of this plugin (Folia#292 workaround).
+     * {@code PoiManager.getOrLoad()} is never reached (Folia#292 workaround).
      * Must run on the villager's owning region thread.
      */
     public void halt(Villager villager) {
-        villager.setAI(false);
+        applyHaltState(villager);
         villager.getPersistentDataContainer().set(haltedKey, PersistentDataType.BYTE, (byte) 1);
         haltedLoaded.add(villager.getUniqueId());
     }
 
     /**
-     * Cleanly reverts a halt: re-enables AI and removes our marker. Only acts
-     * on villagers WE halted, so villagers that were NoAI for other reasons
-     * are left alone. Must run on the villager's owning region thread.
+     * Sets the entity flags for the configured halt method.
+     *
+     * <p>AWARE (default since v1.3.0): {@code setAware(false)} skips the mob's
+     * AI step (brain + goals) while leaving physics fully intact — the
+     * villager keeps gravity (falls if there's no block below), can be pushed
+     * by players/entities/water, and takes knockback when hit. AI stays
+     * enabled so the physics tick runs normally.</p>
+     *
+     * <p>NO_AI: legacy full freeze — no gravity, no knockback, statue-like.</p>
+     */
+    private void applyHaltState(Villager villager) {
+        switch (settings.haltMethod()) {
+            case AWARE -> {
+                villager.setAI(true);      // physics tick ON (migrates old NO_AI villagers)
+                villager.setAware(false);  // brain/goals OFF -> no POI lookups
+            }
+            case NO_AI -> {
+                villager.setAware(false);
+                villager.setAI(false);     // full freeze
+            }
+        }
+    }
+
+    /**
+     * Cleanly reverts a halt: re-enables AI/awareness and removes our marker.
+     * Only acts on villagers WE halted, so villagers that were NoAI/unaware
+     * for other reasons are left alone. Must run on the villager's owning
+     * region thread.
      *
      * @return true if the villager was halted by us and has been restored
      */
@@ -104,7 +130,10 @@ public final class HaltManager {
         if (!isHalted(villager)) {
             return false;
         }
+        // Undo BOTH flags regardless of the current halt-method, since the
+        // villager may have been halted under a different config.
         villager.setAI(true);
+        villager.setAware(true);
         villager.getPersistentDataContainer().remove(haltedKey);
         haltedLoaded.remove(villager.getUniqueId());
         return true;

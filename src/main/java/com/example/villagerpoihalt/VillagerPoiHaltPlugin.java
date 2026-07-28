@@ -158,7 +158,12 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         this.haltManager.updateSettings(this.settings);
         // Re-apply spawner stripping: newly-enabled targets get removed and
         // cached instances of no-longer-stripped spawners get restored.
-        Bukkit.getGlobalRegionScheduler().run(this, task -> applySpawnerStripAll());
+        // Also re-sweep loaded villagers so a changed halt-method migrates
+        // already-halted villagers immediately (not just on next spawn/load).
+        Bukkit.getGlobalRegionScheduler().run(this, task -> {
+            applySpawnerStripAll();
+            sweepLoadedVillagers();
+        });
         // Restart the employment/restock schedulers with the new intervals.
         this.jobManager.start(this.settings);
     }

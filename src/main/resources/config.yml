@@ -22,6 +22,28 @@
 # The scoping list below is ignored when this is true.
 disable-ai-globally: true
 
+# ============================================================================
+# Halt method (added in v1.3.0)
+#
+# Both methods stop Brain.tick() — and therefore the POI lookups this plugin
+# exists to prevent — but they differ in how "frozen" the villager looks:
+#
+#   aware  (recommended, default)
+#     Uses Mob.setAware(false). The brain/goals are off, but PHYSICS STAY ON:
+#     - villagers fall if there is no block below them (gravity works)
+#     - they can be pushed by players, entities, pistons and water
+#     - they take knockback when hit
+#     They still won't walk, work on their own, breed or path.
+#
+#   no-ai
+#     Uses setAI(false). Complete statue freeze: no gravity, no knockback,
+#     cannot be pushed. (This was the only behavior before v1.3.0.)
+#
+# Changing this value and running /vpoihalt reload migrates already-halted
+# villagers to the new method as they are re-checked (spawn/load/next sweep).
+# ============================================================================
+halt-method: aware
+
 # Only used when disable-ai-globally is false.
 # Villagers are halted only when they spawn/load INSIDE one of these areas.
 # Two entry formats are supported:

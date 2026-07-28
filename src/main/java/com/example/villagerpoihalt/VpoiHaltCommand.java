@@ -77,6 +77,11 @@ public final class VpoiHaltCommand implements TabExecutor {
         sender.sendMessage(Component.text("Mode: ", NamedTextColor.GRAY)
                 .append(Component.text(settings.disableAiGlobally() ? "disable-ai-globally" : "scoped areas",
                         NamedTextColor.AQUA)));
+        sender.sendMessage(Component.text("Halt method: ", NamedTextColor.GRAY)
+                .append(Component.text(settings.haltMethod() == Settings.HaltMethod.AWARE
+                                ? "aware (physics/knockback on)"
+                                : "no-ai (full freeze)",
+                        NamedTextColor.AQUA)));
         if (!settings.disableAiGlobally()) {
             if (settings.areas().isEmpty()) {
                 sender.sendMessage(Component.text("  (no areas configured — manual /vpoihalt toggle only)",

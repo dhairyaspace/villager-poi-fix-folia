@@ -52,7 +52,7 @@ behaviors never execute and `PoiManager.getOrLoad()` is never reached.
 mvn package
 ```
 
-Output: `target/VillagerPoiHalt-1.2.0.jar` — drop it into your server's
+Output: `target/VillagerPoiHalt-1.3.0.jar` — drop it into your server's
 `plugins/` folder.
 
 ## Configuration (`config.yml`)
@@ -65,7 +65,24 @@ disable-ai-globally: true
 # Only used when disable-ai-globally is false.
 # Villagers are halted only when they spawn/load INSIDE one of these areas.
 disabled-regions: []
+
+# aware  = brain off, physics on (fall, pushable, knockback)  <- default
+# no-ai  = full statue freeze (no gravity, unpushable)
+halt-method: aware
 ```
+
+### Halt methods (v1.3.0+)
+
+| | `aware` (default) | `no-ai` |
+| --- | --- | --- |
+| POI lookups stopped (Folia#292) | ✅ | ✅ |
+| Gravity (falls without a block below) | ✅ | ❌ floats |
+| Pushable (players/entities/water/pistons) | ✅ | ❌ |
+| Knockback when hit | ✅ | ❌ |
+| Walks / works / breeds / paths | ❌ | ❌ |
+
+`aware` uses Paper's `Mob.setAware(false)` — it skips the AI step (brain +
+goals, where all POI scans live) while the physics tick keeps running.
 
 ### Scoped area formats
 
@@ -215,7 +232,7 @@ Folia's `TickThread` / "failed main thread check" errors:
 ## Releases & versioning
 
 Every release ships with its own notes file in [`releases/`](releases/)
-(one `vX.Y.Z.md` per version). Current: [v1.2.0](releases/v1.2.0.md).
+(one `vX.Y.Z.md` per version). Current: [v1.3.0](releases/v1.3.0.md).
 
 Version bumps follow the policy in [VERSIONING.md](VERSIONING.md):
 

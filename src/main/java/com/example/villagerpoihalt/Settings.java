@@ -20,10 +20,28 @@ import java.util.logging.Logger;
  * </ul>
  */
 public record Settings(boolean disableAiGlobally, List<Area> areas,
+                       HaltMethod haltMethod,
                        boolean stripSpawnersEnabled, Set<String> stripTargets,
                        boolean employmentEnabled, int employmentSearchRadius, long employmentIntervalTicks,
                        boolean restockEnabled, long restockIntervalTicks,
                        int restockTimesPerCycle, int restockCycleMinutes) {
+
+    /**
+     * How a villager's brain is stopped.
+     *
+     * <p>Both prevent {@code Brain.tick()} — and therefore the
+     * AcquirePoi/YieldJobSite/PoiCompetitorScan POI lookups (Folia#292) —
+     * but differ in what physics remain:</p>
+     * <ul>
+     *   <li>{@link #AWARE} — {@code Mob.setAware(false)}: skips the AI step
+     *       (brain + goal selectors) but the entity still has gravity, falls,
+     *       gets pushed by entities/pistons/water and takes hit knockback.
+     *       Looks natural; recommended.</li>
+     *   <li>{@link #NO_AI} — {@code setAI(false)}: fully frozen statue.
+     *       No gravity, no knockback, cannot be pushed.</li>
+     * </ul>
+     */
+    public enum HaltMethod { AWARE, NO_AI }
 
     /** A scoped area in which villager AI should be halted. */
     public sealed interface Area permits RadiusArea, WorldGuardArea {
@@ -87,6 +105,19 @@ public record Settings(boolean disableAiGlobally, List<Area> areas,
     public static Settings load(JavaPlugin plugin) {
         Logger log = plugin.getLogger();
         boolean global = plugin.getConfig().getBoolean("disable-ai-globally", true);
+
+        // --- Halt method (v1.3.0): "aware" keeps physics/knockback ----------
+        String methodRaw = plugin.getConfig().getString("halt-method", "aware");
+        HaltMethod haltMethod;
+        switch (methodRaw.trim().toLowerCase(Locale.ROOT)) {
+            case "no-ai", "noai", "no_ai" -> haltMethod = HaltMethod.NO_AI;
+            case "aware" -> haltMethod = HaltMethod.AWARE;
+            default -> {
+                log.warning("Unknown halt-method '" + methodRaw + "', falling back to 'aware'.");
+                haltMethod = HaltMethod.AWARE;
+            }
+        }
+
         List<Area> areas = new ArrayList<>();
 
         for (String raw : plugin.getConfig().getStringList("disabled-regions")) {
@@ -147,7 +178,7 @@ public record Settings(boolean disableAiGlobally, List<Area> areas,
         // e.g. 4 times / 20 min => every 5 min => 6000 ticks.
         long restockInterval = Math.max(20L, (long) cycleMinutes * 60L * 20L / timesPerCycle);
 
-        return new Settings(global, List.copyOf(areas), stripEnabled, Set.copyOf(targets),
+        return new Settings(global, List.copyOf(areas), haltMethod, stripEnabled, Set.copyOf(targets),
                 employmentEnabled, searchRadius, employmentInterval,
                 restockEnabled, restockInterval, timesPerCycle, cycleMinutes);
     }
