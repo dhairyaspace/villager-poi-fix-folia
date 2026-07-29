@@ -24,7 +24,9 @@ public record Settings(boolean disableAiGlobally, List<Area> areas,
                        boolean stripSpawnersEnabled, Set<String> stripTargets,
                        boolean employmentEnabled, int employmentSearchRadius, long employmentIntervalTicks,
                        boolean restockEnabled, long restockIntervalTicks,
-                       int restockTimesPerCycle, int restockCycleMinutes) {
+                       int restockTimesPerCycle, int restockCycleMinutes,
+                       boolean breedingEnabled, int breedingSearchRadius, long breedingIntervalTicks,
+                       int breedingMinBeds) {
 
     /**
      * How a villager's brain is stopped.
@@ -178,9 +180,18 @@ public record Settings(boolean disableAiGlobally, List<Area> areas,
         // e.g. 4 times / 20 min => every 5 min => 6000 ticks.
         long restockInterval = Math.max(20L, (long) cycleMinutes * 60L * 20L / timesPerCycle);
 
+        // --- Managed breeding (v1.4.0): re-give breeding without POI lookups ---
+        boolean breedingEnabled = plugin.getConfig().getBoolean("managed-breeding.enabled", true);
+        int breedingSearchRadius = Math.max(1, Math.min(16,
+                plugin.getConfig().getInt("managed-breeding.search-radius", 8)));
+        long breedingInterval = Math.max(20L,
+                plugin.getConfig().getLong("managed-breeding.check-interval-seconds", 5) * 20L);
+        int breedingMinBeds = Math.max(2, plugin.getConfig().getInt("managed-breeding.min-beds", 2));
+
         return new Settings(global, List.copyOf(areas), haltMethod, stripEnabled, Set.copyOf(targets),
                 employmentEnabled, searchRadius, employmentInterval,
-                restockEnabled, restockInterval, timesPerCycle, cycleMinutes);
+                restockEnabled, restockInterval, timesPerCycle, cycleMinutes,
+                breedingEnabled, breedingSearchRadius, breedingInterval, breedingMinBeds);
     }
 
     /** Spawner class names that should currently be stripped (empty when disabled). */

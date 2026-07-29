@@ -127,3 +127,29 @@ managed-restock:
   enabled: true
   times-per-cycle: 4
   cycle-minutes: 20
+
+# ============================================================================
+# Managed breeding (added in v1.4.0)
+#
+# With AI disabled, villagers can no longer breed on their own — vanilla does
+# that through the BreedActivity brain behavior, which never runs when the
+# brain is halted. This manager re-enables breeding by periodically checking:
+#   1. Willingness — villager has food in inventory (bread, carrot, potato,
+#      beetroot) or the vanilla willingness flag is set.
+#   2. Bed availability — at least N bed blocks exist in nearby LOADED chunks.
+#   3. Partner — another willing adult villager within 8 blocks.
+#
+# If all conditions are met, a baby villager is spawned at the midpoint and
+# one food item is consumed from each parent. A 5-minute cooldown is enforced
+# per villager (matching vanilla).
+#
+# Only halted villagers managed by this plugin are eligible.
+# ============================================================================
+managed-breeding:
+  enabled: true
+  # How far to scan for beds around each villager (1-16 blocks).
+  search-radius: 8
+  # How often to check breeding eligibility (in seconds).
+  check-interval-seconds: 5
+  # Minimum number of nearby bed blocks required for breeding (vanilla needs 2).
+  min-beds: 2

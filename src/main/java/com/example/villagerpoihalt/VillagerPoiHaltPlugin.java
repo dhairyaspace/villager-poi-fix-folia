@@ -41,6 +41,7 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
     private HaltManager haltManager;
     private SpawnerStripper spawnerStripper;
     private VillagerJobManager jobManager;
+    private VillagerBreedingManager breedingManager;
 
     @Override
     public void onEnable() {
@@ -49,6 +50,7 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         this.haltManager = new HaltManager(this, settings);
         this.spawnerStripper = new SpawnerStripper(this);
         this.jobManager = new VillagerJobManager(this, haltManager, settings);
+        this.breedingManager = new VillagerBreedingManager(this, haltManager, settings);
 
         getServer().getPluginManager().registerEvents(new VillagerListener(this, haltManager), this);
 
@@ -84,6 +86,10 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         // WITHOUT any POI lookups. See VillagerJobManager.
         jobManager.start(settings);
 
+        // Start the managed breeding scheduler (v1.4.0). Re-enables breeding
+        // for AI-disabled villagers WITHOUT any POI lookups. See VillagerBreedingManager.
+        breedingManager.start(settings);
+
         getLogger().info("VillagerPoiHalt enabled. Mode: "
                 + (settings.disableAiGlobally() ? "GLOBAL" : "scoped to " + settings.areas().size() + " area(s)")
                 + ". (Workaround for PaperMC/Folia#292)");
@@ -94,6 +100,9 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         // Stop the repeating employment/restock tasks cleanly.
         if (jobManager != null) {
             jobManager.stop();
+        }
+        if (breedingManager != null) {
+            breedingManager.stop();
         }
         // Intentionally do NOT re-enable AI here: onDisable cannot safely hop
         // to entity region threads on Folia (the plugin's schedulers are shut
@@ -136,6 +145,10 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         return jobManager;
     }
 
+    public VillagerBreedingManager breedingManager() {
+        return breedingManager;
+    }
+
     /**
      * Applies the configured spawner-strip policy to one world.
      * Called on plugin enable and from WorldLoadEvent (both on the global
@@ -166,5 +179,7 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
         });
         // Restart the employment/restock schedulers with the new intervals.
         this.jobManager.start(this.settings);
+        // Restart the breeding scheduler with the new intervals.
+        this.breedingManager.start(this.settings);
     }
 }

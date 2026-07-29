@@ -117,6 +117,14 @@ public final class VpoiHaltCommand implements TabExecutor {
                                         + " min (every " + (settings.restockIntervalTicks() / 20) + "s)"
                                 : "off",
                         settings.restockEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        // Managed breeding status (v1.4.0)
+        sender.sendMessage(Component.text("Managed breeding: ", NamedTextColor.GRAY)
+                .append(Component.text(settings.breedingEnabled()
+                                ? "on (radius " + settings.breedingSearchRadius() + ", every "
+                                        + (settings.breedingIntervalTicks() / 20) + "s, min beds "
+                                        + settings.breedingMinBeds() + ")"
+                                : "off",
+                        settings.breedingEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
     }
 
     private enum Mode { TOGGLE, RESTORE }
