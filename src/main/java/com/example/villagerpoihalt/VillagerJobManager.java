@@ -12,6 +12,8 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Gives AI-disabled villagers back their two most-wanted job functions —
@@ -35,6 +37,14 @@ import java.util.Map;
  *       {@link Villager#setProfession} and then generate the villager's trade
  *       offers directly (reflective call to the vanilla
  *       {@code Villager.updateTrades()}), bypassing the brain entirely.</li>
+ *   <li><b>One workstation per villager:</b> each workstation block can only
+ *       be claimed by ONE villager. Already-claimed blocks are skipped during
+ *       the employment scan, preventing multiple villagers from taking the
+ *       same workstation.</li>
+ *   <li><b>Re-employment on workstation break:</b> if a villager's workstation
+ *       block is broken and its trades are not locked (level 1, never traded),
+ *       the profession is reset so the next cycle can assign a new workstation.
+ *       Villagers with locked trades keep their profession (matching vanilla).</li>
  *   <li><b>Restock:</b> on a fixed schedule we reset every recipe's use count
  *       to 0 (pure Bukkit API), which is exactly what "restock" means — the
  *       trades become available again. Default cadence: 4 times per 20 minutes
@@ -76,6 +86,13 @@ public final class VillagerJobManager {
     private volatile Method updateTradesMethod;
     private volatile boolean updateTradesUnavailable;
 
+    /**
+     * Tracks which workstation block location is claimed by which villager UUID.
+     * Ensures only ONE villager per workstation block. Entries are cleaned up
+     * when the owning villager is removed or the workstation block is broken.
+     */
+    private final ConcurrentHashMap<String, UUID> workstationClaims = new ConcurrentHashMap<>();
+
     private ScheduledTask employmentTask;
     private ScheduledTask restockTask;
 
@@ -97,7 +114,10 @@ public final class VillagerJobManager {
         if (settings.employmentEnabled()) {
             long period = Math.max(20L, settings.employmentIntervalTicks());
             employmentTask = Bukkit.getGlobalRegionScheduler()
-                    .runAtFixedRate(plugin, t -> forEachManagedVillager(this::tryEmploy), period, period);
+                    .runAtFixedRate(plugin, t -> {
+                        cleanupStaleClaims();
+                        forEachManagedVillager(this::tryEmploy);
+                    }, period, period);
         }
         if (settings.restockEnabled()) {
             long period = Math.max(20L, settings.restockIntervalTicks());
@@ -137,37 +157,225 @@ public final class VillagerJobManager {
 
     // ------------------------------------------------------------------ employment
 
-    /** Region-thread only. Assigns a profession if an unemployed adult sits by a job site. */
+    /**
+     * Removes workstation claims for villagers that no longer exist in any
+     * loaded world. Called at the start of each employment cycle (global
+     * region thread — safe for ConcurrentHashMap reads).
+     */
+    private void cleanupStaleClaims() {
+        // Collect all loaded villager UUIDs.
+        java.util.Set<UUID> loaded = new java.util.HashSet<>();
+        for (World world : Bukkit.getWorlds()) {
+            for (Villager v : world.getEntitiesByClass(Villager.class)) {
+                loaded.add(v.getUniqueId());
+            }
+        }
+        // Remove claims for villagers no longer loaded.
+        workstationClaims.values().removeIf(uuid -> !loaded.contains(uuid));
+    }
+
+    /**
+     * Region-thread only. Handles two cases:
+     * <ol>
+     *   <li><b>Unemployed villagers</b> (profession NONE): scan for an unclaimed
+     *       workstation block and assign the matching profession + trades.</li>
+     *   <li><b>Employed villagers whose workstation was broken</b>: if trades are
+     *       not locked (level 1, never traded), clear the profession and seek a
+     *       new workstation.</li>
+     * </ol>
+     * One workstation block = one villager. Already-claimed blocks are skipped.
+     */
     private void tryEmploy(Villager villager) {
         if (!villager.isAdult()) {
             return;
         }
+        if (villager.getProfession() == Villager.Profession.NITWIT) {
+            return;
+        }
+
         Villager.Profession current = villager.getProfession();
-        // Only employ the jobless. Leave NITWIT and already-employed alone.
-        if (current != Villager.Profession.NONE) {
-            return;
-        }
 
-        Villager.Profession found = scanForJobSite(villager);
-        if (found == null) {
-            return;
+        if (current == Villager.Profession.NONE) {
+            // Unemployed — try to find an unclaimed workstation.
+            tryAssignNewJob(villager);
+        } else {
+            // Employed — check if the workstation block still exists.
+            verifyWorkstation(villager, current);
         }
-
-        villager.setProfession(found);
-        if (villager.getVillagerLevel() < 1) {
-            villager.setVillagerLevel(1); // tier 1 (Novice) so trades can generate
-        }
-        generateTrades(villager);
-        plugin.getLogger().fine("Employed a villager as " + found + " at " + villager.getLocation());
     }
 
     /**
-     * Region-thread only. Scans a small cuboid around the villager for the
-     * first recognised job-site block. Only reads blocks in loaded chunks and
-     * swallows any thread-ownership error, so it can never force a load or
-     * cross a region boundary unsafely.
+     * Unemployed villager: scan for an unclaimed workstation block and assign
+     * the matching profession. Only reads loaded chunks, never forces a load.
      */
-    private Villager.Profession scanForJobSite(Villager villager) {
+    private void tryAssignNewJob(Villager villager) {
+        Location jobSite = findUnclaimedJobSite(villager);
+        if (jobSite == null) {
+            return;
+        }
+
+        Villager.Profession prof = JOB_SITES.get(jobSite.getBlock().getType());
+        if (prof == null) {
+            return;
+        }
+
+        // Claim the workstation for this villager.
+        claimWorkstation(jobSite, villager);
+
+        villager.setProfession(prof);
+        if (villager.getVillagerLevel() < 1) {
+            villager.setVillagerLevel(1);
+        }
+        generateTrades(villager);
+        plugin.getLogger().fine("Employed a villager as " + prof + " at " + villager.getLocation());
+    }
+
+    /**
+     * Employed villager: verify the workstation block still exists. If it was
+     * broken and trades are not locked, reset profession so the next cycle
+     * can assign a new workstation.
+     */
+    private void verifyWorkstation(Villager villager, Villager.Profession profession) {
+        String claimKey = getClaimKey(villager);
+        if (claimKey == null) {
+            // No tracked workstation — let it keep its job (legacy or external).
+            return;
+        }
+
+        // Check if the workstation block is still a valid job-site of the right type.
+        if (isWorkstationStillValid(claimKey, profession)) {
+            return; // workstation intact, all good
+        }
+
+        // Workstation is gone. Check if trades are locked.
+        if (hasLockedTrades(villager)) {
+            // Trades are locked — villager keeps the profession even without
+            // a workstation (matches vanilla behavior after first trade).
+            plugin.getLogger().fine("Villager's workstation broken but trades locked, keeping profession: "
+                    + villager.getLocation());
+            return;
+        }
+
+        // Trades not locked — free the claim, reset profession so next cycle
+        // can assign a new workstation.
+        workstationClaims.remove(claimKey);
+        villager.setProfession(Villager.Profession.NONE);
+        plugin.getLogger().fine("Villager's workstation broken, resetting profession for re-employment: "
+                + villager.getLocation());
+    }
+
+    /**
+     * Returns the claim key (world:x:y:z) for the workstation this villager
+     * is tracked against, or null if no claim exists.
+     */
+    private String getClaimKey(Villager villager) {
+        String uuid = villager.getUniqueId().toString();
+        for (Map.Entry<String, UUID> entry : workstationClaims.entrySet()) {
+            if (entry.getValue().equals(villager.getUniqueId())) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Checks if the workstation block at the claim key still exists and is the
+     * expected profession block type. Returns false if the block was broken or
+     * changed.
+     */
+    private boolean isWorkstationStillValid(String claimKey, Villager.Profession expectedProf) {
+        String[] parts = claimKey.split(":");
+        if (parts.length != 4) {
+            return false;
+        }
+        World world = Bukkit.getWorld(parts[0]);
+        if (world == null) {
+            return false;
+        }
+        int x = Integer.parseInt(parts[1]);
+        int y = Integer.parseInt(parts[2]);
+        int z = Integer.parseInt(parts[3]);
+        if (!world.isChunkLoaded(x >> 4, z >> 4)) {
+            return true; // chunk unloaded — assume still valid
+        }
+        try {
+            Block block = world.getBlockAt(x, y, z);
+            Villager.Profession actual = JOB_SITES.get(block.getType());
+            return actual == expectedProf;
+        } catch (RuntimeException e) {
+            return true; // cross-region — assume valid
+        }
+    }
+
+    /**
+     * Checks if the villager has locked trades (has traded at least once).
+     * Uses reflection to call NMS Villager.hasLockedTrades().
+     */
+    private boolean hasLockedTrades(Villager villager) {
+        try {
+            Object handle = villager.getClass().getMethod("getHandle").invoke(villager);
+            Method method = resolveHasLockedTrades(handle.getClass());
+            if (method != null) {
+                return (boolean) method.invoke(handle);
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        // Fallback: check if villager level > 1 or has non-empty recipes with uses
+        if (villager.getVillagerLevel() > 1) {
+            return true;
+        }
+        for (MerchantRecipe recipe : villager.getRecipes()) {
+            if (recipe.getUses() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Caches reflection handle for Villager.hasLockedTrades(). */
+    private volatile Method hasLockedTradesMethod;
+
+    private Method resolveHasLockedTrades(Class<?> handleClass) {
+        Method cached = hasLockedTradesMethod;
+        if (cached != null) {
+            return cached;
+        }
+        for (Class<?> cls = handleClass; cls != null; cls = cls.getSuperclass()) {
+            try {
+                Method m = cls.getDeclaredMethod("hasLockedTrades");
+                m.setAccessible(true);
+                hasLockedTradesMethod = m;
+                return m;
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Registers a workstation claim: the block location (world:x:y:z) maps to
+     * the villager's UUID. Only one villager can claim each workstation.
+     */
+    private void claimWorkstation(Location loc, Villager villager) {
+        workstationClaims.put(locationKey(loc), villager.getUniqueId());
+    }
+
+    /** Removes all claims for a given villager UUID. */
+    private void releaseClaim(UUID villagerUuid) {
+        workstationClaims.values().removeIf(uuid -> uuid.equals(villagerUuid));
+    }
+
+    /** Unique string key for a block location. */
+    private static String locationKey(Location loc) {
+        return loc.getWorld().getName() + ":" + loc.getBlockX() + ":" + loc.getBlockY() + ":" + loc.getBlockZ();
+    }
+
+    /**
+     * Scans a small cuboid around the villager for the first unclaimed
+     * recognised job-site block. Returns the Location if found, null otherwise.
+     * Only reads blocks in loaded chunks — never forces a load.
+     */
+    private Location findUnclaimedJobSite(Villager villager) {
         Location base = villager.getLocation();
         World world = villager.getWorld();
         int r = settings.employmentSearchRadius();
@@ -179,7 +387,6 @@ public final class VillagerJobManager {
             for (int dz = -r; dz <= r; dz++) {
                 int x = bx + dx;
                 int z = bz + dz;
-                // Guard: never touch an unloaded chunk (would trigger a load).
                 if (!world.isChunkLoaded(x >> 4, z >> 4)) {
                     continue;
                 }
@@ -190,9 +397,11 @@ public final class VillagerJobManager {
                     }
                     try {
                         Block block = world.getBlockAt(x, y, z);
-                        Villager.Profession prof = JOB_SITES.get(block.getType());
-                        if (prof != null) {
-                            return prof;
+                        if (JOB_SITES.containsKey(block.getType())) {
+                            String key = world.getName() + ":" + x + ":" + y + ":" + z;
+                            if (!workstationClaims.containsKey(key)) {
+                                return block.getLocation();
+                            }
                         }
                     } catch (RuntimeException ignored) {
                         // Cross-region / thread-check: skip this block safely.
