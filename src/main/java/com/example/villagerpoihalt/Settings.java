@@ -26,7 +26,8 @@ public record Settings(boolean disableAiGlobally, List<Area> areas,
                        boolean restockEnabled, long restockIntervalTicks,
                        int restockTimesPerCycle, int restockCycleMinutes,
                        boolean breedingEnabled, int breedingSearchRadius, long breedingIntervalTicks,
-                       int breedingMinBeds) {
+                       int breedingMinBeds,
+                       boolean movementEnabled, int movementRadius, long movementIntervalTicks) {
 
     /**
      * How a villager's brain is stopped.
@@ -188,10 +189,18 @@ public record Settings(boolean disableAiGlobally, List<Area> areas,
                 plugin.getConfig().getLong("managed-breeding.check-interval-seconds", 5) * 20L);
         int breedingMinBeds = Math.max(2, plugin.getConfig().getInt("managed-breeding.min-beds", 2));
 
+        // --- Managed movement: direct safe movement without Brain/POI lookups ---
+        boolean movementEnabled = plugin.getConfig().getBoolean("managed-movement.enabled", true);
+        int movementRadius = Math.max(1, Math.min(8,
+                plugin.getConfig().getInt("managed-movement.radius", 5)));
+        long movementInterval = Math.max(20L,
+                plugin.getConfig().getLong("managed-movement.interval-seconds", 8) * 20L);
+
         return new Settings(global, List.copyOf(areas), haltMethod, stripEnabled, Set.copyOf(targets),
                 employmentEnabled, searchRadius, employmentInterval,
                 restockEnabled, restockInterval, timesPerCycle, cycleMinutes,
-                breedingEnabled, breedingSearchRadius, breedingInterval, breedingMinBeds);
+                breedingEnabled, breedingSearchRadius, breedingInterval, breedingMinBeds,
+                movementEnabled, movementRadius, movementInterval);
     }
 
     /** Spawner class names that should currently be stripped (empty when disabled). */

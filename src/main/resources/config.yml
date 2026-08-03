@@ -153,3 +153,18 @@ managed-breeding:
   check-interval-seconds: 5
   # Minimum number of nearby bed blocks required for breeding (vanilla needs 2).
   min-beds: 2
+
+# ============================================================================
+# Managed movement (v1.6.0)
+#
+# Gives AI-disabled villagers limited natural-looking movement without
+# restoring Brain.tick() or any POI lookup. Villagers take small steps toward
+# nearby beds/workstations sometimes, and otherwise wander randomly nearby.
+# All targets are selected from loaded blocks only.
+# ============================================================================
+managed-movement:
+  enabled: true
+  # Random movement radius around each villager (1-8 blocks).
+  radius: 5
+  # Seconds between movement steps.
+  interval-seconds: 8

@@ -125,6 +125,12 @@ public final class VpoiHaltCommand implements TabExecutor {
                                         + settings.breedingMinBeds() + ")"
                                 : "off",
                         settings.breedingEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        sender.sendMessage(Component.text("Managed movement: ", NamedTextColor.GRAY)
+                .append(Component.text(settings.movementEnabled()
+                                ? "on (radius " + settings.movementRadius() + ", every "
+                                        + (settings.movementIntervalTicks() / 20) + "s)"
+                                : "off",
+                        settings.movementEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
     }
 
     private enum Mode { TOGGLE, RESTORE }
