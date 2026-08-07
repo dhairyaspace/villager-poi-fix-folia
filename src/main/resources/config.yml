@@ -121,7 +121,9 @@ managed-employment:
 #
 # With AI disabled, villagers no longer restock trades on their work schedule.
 # This resets each trade's use counter (making sold-out trades available again)
-# on a fixed cadence. Default: 4 times per 20 minutes = once every 5 minutes.
+# on a fixed cadence. Completed trades also award experience and advance the
+# villager's level, replacing the brain-driven vanilla progression.
+# Default: 4 times per 20 minutes = once every 5 minutes.
 # ============================================================================
 managed-restock:
   enabled: true

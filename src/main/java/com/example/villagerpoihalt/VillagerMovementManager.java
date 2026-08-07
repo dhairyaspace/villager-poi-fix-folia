@@ -9,6 +9,9 @@ import org.bukkit.block.Block;
 import org.bukkit.entity.Villager;
 
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Gives halted villagers limited, POI-free movement. It never enables AI and
@@ -20,6 +23,7 @@ public final class VillagerMovementManager {
     private final HaltManager haltManager;
     private volatile Settings settings;
     private ScheduledTask movementTask;
+    private final Map<UUID, Location> targets = new ConcurrentHashMap<>();
 
     public VillagerMovementManager(VillagerPoiHaltPlugin plugin, HaltManager haltManager, Settings settings) {
         this.plugin = plugin;
@@ -56,7 +60,16 @@ public final class VillagerMovementManager {
     }
 
     private void moveOneStep(Villager villager) {
-        Location target = findTarget(villager);
+        if (settings.haltMethod() == Settings.HaltMethod.NO_AI) {
+            return; // No-AI disables physics; velocity cannot move a statue.
+        }
+        Location target = targets.get(villager.getUniqueId());
+        if (target == null || target.getWorld() != villager.getWorld()
+                || target.distanceSquared(villager.getLocation()) < 1.0) {
+            target = findTarget(villager);
+            if (target == null) return;
+            targets.put(villager.getUniqueId(), target);
+        }
         if (target == null) return;
 
         Location current = villager.getLocation();
@@ -67,11 +80,11 @@ public final class VillagerMovementManager {
 
         // Small steps look less like teleporting and avoid crossing large gaps.
         double step = Math.min(0.8, distance);
-        Location next = current.clone().add(dx / distance * step, 0, dz / distance * step);
-        Location safe = findSafeLocation(next);
-        if (safe == null) return;
-        safe.setYaw((float) Math.toDegrees(Math.atan2(-dx, dz)));
-        villager.teleport(safe);
+        // Use physics on the entity's current region instead of teleporting.
+        // Folia can reject teleports whose destination belongs to another
+        // region; a small velocity avoids that cross-region sync path.
+        double speed = Math.min(0.08, step / 10.0);
+        villager.setVelocity(new org.bukkit.util.Vector(dx / distance * speed, 0, dz / distance * speed));
     }
 
     private Location findTarget(Villager villager) {

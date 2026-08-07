@@ -83,8 +83,9 @@ public final class VillagerPoiHaltPlugin extends JavaPlugin {
             applySpawnerStripAll();
         });
 
-        // Start the managed employment + restock schedulers (v1.2.0). These
-        // give AI-disabled villagers back job-taking and trade restocking
+        // Start the managed employment + restock/progression schedulers (v1.2.0).
+        // These give AI-disabled villagers back job-taking, trade restocking,
+        // and level progression
         // WITHOUT any POI lookups. See VillagerJobManager.
         jobManager.start(settings);
 

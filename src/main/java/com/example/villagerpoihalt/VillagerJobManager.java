@@ -220,7 +220,9 @@ public final class VillagerJobManager {
         }
 
         // Claim the workstation for this villager.
-        claimWorkstation(jobSite, villager);
+        if (!claimWorkstation(jobSite, villager)) {
+            return;
+        }
 
         villager.setProfession(prof);
         if (villager.getVillagerLevel() < 1) {
@@ -238,7 +240,12 @@ public final class VillagerJobManager {
     private void verifyWorkstation(Villager villager, Villager.Profession profession) {
         String claimKey = getClaimKey(villager);
         if (claimKey == null) {
-            // No tracked workstation — let it keep its job (legacy or external).
+            // Re-register jobs assigned before this manager started. The
+            // atomic claim prevents multiple region tasks taking one block.
+            Location site = findJobSiteForProfession(villager, profession);
+            if (site != null) {
+                claimWorkstation(site, villager);
+            }
             return;
         }
 
@@ -356,8 +363,8 @@ public final class VillagerJobManager {
      * Registers a workstation claim: the block location (world:x:y:z) maps to
      * the villager's UUID. Only one villager can claim each workstation.
      */
-    private void claimWorkstation(Location loc, Villager villager) {
-        workstationClaims.put(locationKey(loc), villager.getUniqueId());
+    private boolean claimWorkstation(Location loc, Villager villager) {
+        return workstationClaims.putIfAbsent(locationKey(loc), villager.getUniqueId()) == null;
     }
 
     /** Removes all claims for a given villager UUID. */
@@ -406,6 +413,31 @@ public final class VillagerJobManager {
                     } catch (RuntimeException ignored) {
                         // Cross-region / thread-check: skip this block safely.
                     }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Finds a nearby workstation matching an existing villager profession. */
+    private Location findJobSiteForProfession(Villager villager, Villager.Profession profession) {
+        Location base = villager.getLocation();
+        World world = villager.getWorld();
+        int r = settings.employmentSearchRadius();
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                int x = base.getBlockX() + dx;
+                int z = base.getBlockZ() + dz;
+                if (!world.isChunkLoaded(x >> 4, z >> 4)) continue;
+                for (int dy = -2; dy <= 2; dy++) {
+                    int y = base.getBlockY() + dy;
+                    try {
+                        Block block = world.getBlockAt(x, y, z);
+                        if (JOB_SITES.get(block.getType()) == profession
+                                && !workstationClaims.containsKey(locationKey(block.getLocation()))) {
+                            return block.getLocation();
+                        }
+                    } catch (RuntimeException ignored) { }
                 }
             }
         }
@@ -467,6 +499,7 @@ public final class VillagerJobManager {
         if (recipes.isEmpty()) {
             return;
         }
+        progressFromTrades(villager, recipes);
         boolean changed = false;
         for (MerchantRecipe recipe : recipes) {
             if (recipe.getUses() > 0) {
@@ -478,5 +511,41 @@ public final class VillagerJobManager {
             // setRecipes writes the mutated list back onto the merchant.
             villager.setRecipes(recipes);
         }
+    }
+
+    /**
+     * Applies experience and level progression for trades completed since the
+     * last managed restock. Vanilla normally does this from the brain/trading
+     * logic; doing it here keeps progression available while AI is halted.
+     */
+    private void progressFromTrades(Villager villager, List<MerchantRecipe> recipes) {
+        int completedTrades = 0;
+        for (MerchantRecipe recipe : recipes) {
+            completedTrades += Math.max(0, recipe.getUses());
+        }
+        if (completedTrades == 0 || villager.getVillagerLevel() >= 5) {
+            return;
+        }
+
+        int oldLevel = villager.getVillagerLevel();
+        int experience = villager.getVillagerExperience() + completedTrades * 3;
+        villager.setVillagerExperience(experience);
+
+        int newLevel = levelForExperience(experience);
+        if (newLevel > oldLevel) {
+            villager.setVillagerLevel(newLevel);
+            generateTrades(villager);
+            plugin.getLogger().fine("Villager leveled up from " + oldLevel + " to " + newLevel
+                    + " at " + villager.getLocation());
+        }
+    }
+
+    /** Vanilla villager experience thresholds for levels 1 through 5. */
+    private int levelForExperience(int experience) {
+        if (experience >= 250) return 5;
+        if (experience >= 150) return 4;
+        if (experience >= 70) return 3;
+        if (experience >= 10) return 2;
+        return 1;
     }
 }
