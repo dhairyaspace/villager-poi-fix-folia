@@ -24,6 +24,7 @@ public final class VillagerMovementManager {
     private volatile Settings settings;
     private ScheduledTask movementTask;
     private final Map<UUID, Location> targets = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> targetTimes = new ConcurrentHashMap<>();
 
     public VillagerMovementManager(VillagerPoiHaltPlugin plugin, HaltManager haltManager, Settings settings) {
         this.plugin = plugin;
@@ -35,7 +36,9 @@ public final class VillagerMovementManager {
         this.settings = settings;
         stop();
         if (!settings.movementEnabled()) return;
-        long period = Math.max(20L, settings.movementIntervalTicks());
+        // Run the physics step frequently. The configured interval controls
+        // target selection, not how long a velocity impulse is allowed to die.
+        long period = 2L;
         movementTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin,
                 task -> forEachVillager(this::moveOneStep), period, period);
     }
@@ -64,11 +67,16 @@ public final class VillagerMovementManager {
             return; // No-AI disables physics; velocity cannot move a statue.
         }
         Location target = targets.get(villager.getUniqueId());
-        if (target == null || target.getWorld() != villager.getWorld()
+        long now = System.currentTimeMillis();
+        Long selectedAt = targetTimes.get(villager.getUniqueId());
+        boolean expired = selectedAt != null
+                && now - selectedAt >= settings.movementIntervalTicks() * 50L;
+        if (target == null || expired || target.getWorld() != villager.getWorld()
                 || target.distanceSquared(villager.getLocation()) < 1.0) {
             target = findTarget(villager);
             if (target == null) return;
             targets.put(villager.getUniqueId(), target);
+            targetTimes.put(villager.getUniqueId(), now);
         }
         if (target == null) return;
 
@@ -83,7 +91,7 @@ public final class VillagerMovementManager {
         // Use physics on the entity's current region instead of teleporting.
         // Folia can reject teleports whose destination belongs to another
         // region; a small velocity avoids that cross-region sync path.
-        double speed = Math.min(0.08, step / 10.0);
+        double speed = Math.min(0.12, step / 6.0);
         villager.setVelocity(new org.bukkit.util.Vector(dx / distance * speed, 0, dz / distance * speed));
     }
 

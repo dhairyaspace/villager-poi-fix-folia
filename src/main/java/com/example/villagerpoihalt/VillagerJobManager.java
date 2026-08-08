@@ -95,6 +95,8 @@ public final class VillagerJobManager {
 
     private ScheduledTask employmentTask;
     private ScheduledTask restockTask;
+    private ScheduledTask progressionTask;
+    private final java.util.concurrent.ConcurrentHashMap<UUID, Integer> observedTradeUses = new java.util.concurrent.ConcurrentHashMap<>();
 
     private volatile Settings settings;
 
@@ -124,6 +126,10 @@ public final class VillagerJobManager {
             restockTask = Bukkit.getGlobalRegionScheduler()
                     .runAtFixedRate(plugin, t -> forEachManagedVillager(this::restock), period, period);
         }
+        // Observe trade usage independently so leveling still works when
+        // restocking is disabled or configured to a long interval.
+        progressionTask = Bukkit.getGlobalRegionScheduler()
+                .runAtFixedRate(plugin, t -> forEachManagedVillager(this::progressFromNewTrades), 20L, 20L);
     }
 
     /** Cancels both repeating tasks (reload / disable). */
@@ -135,6 +141,10 @@ public final class VillagerJobManager {
         if (restockTask != null) {
             restockTask.cancel();
             restockTask = null;
+        }
+        if (progressionTask != null) {
+            progressionTask.cancel();
+            progressionTask = null;
         }
     }
 
@@ -537,6 +547,26 @@ public final class VillagerJobManager {
             generateTrades(villager);
             plugin.getLogger().fine("Villager leveled up from " + oldLevel + " to " + newLevel
                     + " at " + villager.getLocation());
+        }
+    }
+
+    /** Awards XP only for uses not observed by the previous progression tick. */
+    private void progressFromNewTrades(Villager villager) {
+        List<MerchantRecipe> recipes = villager.getRecipes();
+        int uses = 0;
+        for (MerchantRecipe recipe : recipes) uses += Math.max(0, recipe.getUses());
+        UUID id = villager.getUniqueId();
+        int previous = observedTradeUses.getOrDefault(id, 0);
+        if (uses < previous) previous = 0; // managed restock reset the counters
+        observedTradeUses.put(id, uses);
+        if (uses <= previous || villager.getVillagerLevel() >= 5) return;
+
+        int oldLevel = villager.getVillagerLevel();
+        villager.setVillagerExperience(villager.getVillagerExperience() + (uses - previous) * 3);
+        int newLevel = levelForExperience(villager.getVillagerExperience());
+        if (newLevel > oldLevel) {
+            villager.setVillagerLevel(newLevel);
+            generateTrades(villager);
         }
     }
 
