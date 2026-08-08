@@ -25,6 +25,8 @@ public final class VillagerMovementManager {
     private ScheduledTask movementTask;
     private final Map<UUID, Location> targets = new ConcurrentHashMap<>();
     private final Map<UUID, Long> targetTimes = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> nextMovementAt = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> movementEndsAt = new ConcurrentHashMap<>();
 
     public VillagerMovementManager(VillagerPoiHaltPlugin plugin, HaltManager haltManager, Settings settings) {
         this.plugin = plugin;
@@ -66,8 +68,31 @@ public final class VillagerMovementManager {
         if (settings.haltMethod() == Settings.HaltMethod.NO_AI) {
             return; // No-AI disables physics; velocity cannot move a statue.
         }
-        Location target = targets.get(villager.getUniqueId());
+        if (!hasSolidFloor(villager.getLocation())) {
+            // Never keep applying a horizontal impulse while airborne. Let
+            // aware-mode physics bring the villager down naturally.
+            villager.setVelocity(new org.bukkit.util.Vector(0, -0.08, 0));
+            return;
+        }
+        UUID id = villager.getUniqueId();
         long now = System.currentTimeMillis();
+        long next = nextMovementAt.computeIfAbsent(id,
+                ignored -> now + randomMillis(8_000L, 24_000L));
+        Long ends = movementEndsAt.get(id);
+        if (ends == null || now >= ends) {
+            if (now < next) {
+                villager.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+                return;
+            }
+            // Short random movement burst followed by a long idle period.
+            // 2-6 seconds active / 18-54 seconds idle averages about 10%.
+            long activeUntil = now + randomMillis(2_000L, 6_000L);
+            movementEndsAt.put(id, activeUntil);
+            nextMovementAt.put(id, activeUntil + randomMillis(18_000L, 54_000L));
+            ends = activeUntil;
+        }
+        if (now >= ends) return;
+        Location target = targets.get(villager.getUniqueId());
         Long selectedAt = targetTimes.get(villager.getUniqueId());
         boolean expired = selectedAt != null
                 && now - selectedAt >= settings.movementIntervalTicks() * 50L;
@@ -86,6 +111,14 @@ public final class VillagerMovementManager {
         double distance = Math.sqrt(dx * dx + dz * dz);
         if (distance < 0.7) return;
 
+        Location nextPosition = current.clone().add(dx / distance * Math.min(0.8, distance), 0,
+                dz / distance * Math.min(0.8, distance));
+        if (!hasSafeMovementFloor(nextPosition)) {
+            villager.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+            targets.remove(villager.getUniqueId());
+            return;
+        }
+
         // Small steps look less like teleporting and avoid crossing large gaps.
         double step = Math.min(0.8, distance);
         // Use physics on the entity's current region instead of teleporting.
@@ -93,6 +126,39 @@ public final class VillagerMovementManager {
         // region; a small velocity avoids that cross-region sync path.
         double speed = Math.min(0.12, step / 6.0);
         villager.setVelocity(new org.bukkit.util.Vector(dx / distance * speed, 0, dz / distance * speed));
+    }
+
+    private long randomMillis(long minimum, long maximum) {
+        return ThreadLocalRandom.current().nextLong(minimum, maximum + 1L);
+    }
+
+    private boolean hasSolidFloor(Location location) {
+        World world = location.getWorld();
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+        if (!world.isChunkLoaded(x >> 4, z >> 4) || y <= world.getMinHeight()) return false;
+        try {
+            return world.getBlockAt(x, y - 1, z).getType().isSolid();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private boolean hasSafeMovementFloor(Location location) {
+        World world = location.getWorld();
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+        if (!world.isChunkLoaded(x >> 4, z >> 4)
+                || y <= world.getMinHeight() || y + 1 >= world.getMaxHeight()) return false;
+        try {
+            return world.getBlockAt(x, y - 1, z).getType().isSolid()
+                    && world.getBlockAt(x, y, z).isPassable()
+                    && world.getBlockAt(x, y + 1, z).isPassable();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     private Location findTarget(Villager villager) {
